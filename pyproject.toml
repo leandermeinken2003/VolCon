@@ -8,6 +8,7 @@ packages = [{include = "model"}, {include = "training"}, {include = "utils"}]
 
 [tool.poetry.dependencies]
 python = "^3.12"
+torch = "^2.4.0"
 
 
 [build-system]
