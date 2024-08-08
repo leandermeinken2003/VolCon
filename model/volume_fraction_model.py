@@ -1,11 +1,14 @@
 """Define Model to predict volume percentages."""
+#pylint: disable=not-callable
 
 import torch
 from torch import nn
+from torch.nn import functional as F
 
-from volcon.models.context_model import (
-    ContextAwareImageModelBase,
-    ContextLinear,
+from model.context_model import ContextAwareImageModelBase
+from utils.parameters import (
+    create_parameters,
+    initialize_parameters,
 )
 
 
@@ -46,14 +49,57 @@ class VolumeFractionModel(nn.Module):
             contrastive_texture_images: torch.Tensor,
     ) -> torch.Tensor:
         """Predict VolumeFraction for mikrograph and the corresponding context."""
-        microstructure_image_encodings, context_embedding = self.backbone(
+        microstructure_image_embedding, context_embedding = self.backbone(
             microstructure_images, texture_images, contrastive_texture_images,
         )
         if self.use_context_linear:
-            microstructure_image_encodings = self.hidden_layer(microstructure_image_encodings)
-            outputs = self.output_layer(microstructure_image_encodings, context_embedding)
+            microstructure_image_embedding = self.hidden_layer(
+                microstructure_image_embedding, context_embedding,
+            )
+            outputs = self.output_layer(microstructure_image_embedding, context_embedding)
         else:
-            microstructure_image_encodings = self.backbone(microstructure_images)
-            microstructure_image_encodings = self.hidden_layer(microstructure_image_encodings)
-            outputs = self.output_layer(microstructure_image_encodings)
+            microstructure_image_embedding = self.backbone(microstructure_images)
+            microstructure_image_embedding = self.hidden_layer(microstructure_image_embedding)
+            outputs = self.output_layer(microstructure_image_embedding)
         return outputs
+
+
+class ContextLinear(nn.Module):
+    """Define ContextLinear."""
+    def __init__(self, input_channels: int, output_channels: int, embedding_size: int) -> None:
+        """Defome ContextLinear.
+        
+        :param input_channels: Defines the number of image channels of the input image.
+        :param output_channels: Defines the number of image channels of the output image.
+        :param embedding_size: The size of the context embedding received.
+        """
+        super().__init__()
+        self.weight_generation_tensor = create_parameters((output_channels, 1))
+        initialize_parameters(self.weight_generation_tensor)
+        self.context_reception_tensor = create_parameters((input_channels, embedding_size))
+        initialize_parameters(self.context_reception_tensor)
+        self.context_bias_tensor = create_parameters((output_channels, embedding_size))
+        initialize_parameters(self.context_bias_tensor)
+
+    def forward(self, inputs: torch.Tensor, context_embedding: torch.Tensor) -> torch.Tensor:
+        """Calculate a context aware linear layer."""
+        context_reception = torch.matmul(
+            self.context_reception_tensor, context_embedding.transpose(0, 1),
+        ).transpose(0, 1)
+        bias = torch.matmul(
+            self.context_bias_tensor, context_embedding.transpose(0, 1),
+        ).transpose(0, 1)
+        return self._apply_context_to_each_sample(inputs, context_reception, bias)
+
+    def _apply_context_to_each_sample(
+            self, inputs: torch.Tensor, context_reception: torch.Tensor, bias: torch.Tensor,
+    ) -> torch.Tensor:
+        num_embedding = context_reception.shape[0]
+        new_embedding = []
+        for encoding_index in range(num_embedding):
+            image_embedding = inputs[encoding_index].unsqueeze(0)
+            image_bias = bias[encoding_index]
+            image_context_reception = context_reception[encoding_index].reshape(1, -1)
+            image_weights = torch.matmul(self.weight_generation_tensor, image_context_reception)
+            new_embedding.append(F.linear(image_embedding, image_weights, image_bias))
+        return torch.concat(new_embedding, dim=0)
