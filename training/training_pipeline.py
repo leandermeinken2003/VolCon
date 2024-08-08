@@ -33,7 +33,7 @@ MODEL_SAVE_PATH = TESTRUN_PATH + 'model.pth'
 OPTIMIZER_SAVE_PATH = TESTRUN_PATH + 'optimizer.pth'
 TRAIN_METRICS_PATH = TESTRUN_PATH + 'train_metrics.json'
 TEST_METRICS_PATH = TESTRUN_PATH + 'test_metrics.json'
-TESTDATA_DIRECTORY = 'test/data/'
+TESTDATA_DIRECTORY = 'testing/processed_testing_data/'
 
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -131,9 +131,9 @@ def _load_optimizer_state_dict(optimizer: Adam) -> dict:
 
 
 def _save_hyperparameters() -> None:
-    with open(TESTRUN_PATH + 'data_hyperparameters', 'w', encoding='uft-8') as file:
+    with open(TESTRUN_PATH + 'data_hyperparameters.json', 'w', encoding='utf-8') as file:
         json.dump(DATA_HYPERPARAMETERS, file)
-    with open(TESTRUN_PATH + 'model_hyperparameters', 'w', encoding='uft-8') as file:
+    with open(TESTRUN_PATH + 'model_hyperparameters.json', 'w', encoding='utf-8') as file:
         json.dump(BACKBONE_PARAMS, file)
 
 
@@ -280,7 +280,7 @@ def _get_testdirectory_data(
 ) -> tuple[torch.Tensor]:
     volume_fraction_df = pd.read_csv(testcase_directory + '/volume_fractions.csv')
     current_true_volume_fractions = volume_fraction_df['volume_fraction'].tolist()
-    true_volume_fractions_list.append(current_true_volume_fractions)
+    true_volume_fractions_list.extend([[vf] for vf in current_true_volume_fractions])
     microstructure_images = _get_microstructure_images(testcase_directory)
     context_inputs = _get_texture_images(testcase_directory)
     return (microstructure_images, *context_inputs)
@@ -288,14 +288,18 @@ def _get_testdirectory_data(
 
 def _get_microstructure_images(testcase_directory: str) -> torch.Tensor:
     microstructure_image = (
-        torch.load(testcase_directory + '/microstructure.pt') / 255
+        torch.load(testcase_directory + '/microstructure.pt', weights_only=True) / 255
     ).to(DEVICE)
     return [microstructure_image, microstructure_image]
 
 
 def _get_texture_images(testcase_directory: str) -> tuple[torch.Tensor]:
-    texture_1_sample = torch.load(testcase_directory + '/material_1_sample.pt') / 255
-    texture_2_sample = torch.load(testcase_directory + '/material_2_sample.pt') / 255
+    texture_1_sample = torch.load(
+        testcase_directory + '/material_1_sample.pt', weights_only=True,
+    ) / 255
+    texture_2_sample = torch.load(
+        testcase_directory + '/material_2_sample.pt', weights_only=True,
+    ) / 255
     texture_1_sample = texture_1_sample.to(DEVICE)
     texture_2_sample = texture_2_sample.to(DEVICE)
     context_images = [texture_1_sample, texture_2_sample]
