@@ -1,4 +1,5 @@
 """Train the model given a set of hyperparameters."""
+#pylint: disable=import-error
 
 import os
 import json
@@ -12,6 +13,7 @@ import torch
 from torch import nn
 from torch.optim import Adam
 from tqdm import tqdm
+from joblib.externals.loky import cpu_count
 
 from model.volume_fraction_model import VolumeFractionModel
 from model.context_model import ContextAwareImageModelBase
@@ -25,6 +27,10 @@ from utils.memory_saving import (
 )
 from utils.metrics import process_metrics
 from utils.parallel_computing import parallel_execution_of_function
+from utils.parallel_computing import (
+    parallel_execution_of_function_with_same_params,
+    parallel_execution_of_function_with_param_list,
+)
 from utils.reproducability import ensure_reproducability
 
 
@@ -80,6 +86,7 @@ LR = 1e-3
 
 
 TrainingData = namedtuple('TrainingData', ['model_inputs', 'true_volume_fractions'])
+TestCase = namedtuple('TestCase', ['model_inputs', 'true_volume_fractions'])
 
 
 def main() -> None:
@@ -145,8 +152,17 @@ def _epoch_training_step(
     optimizer.zero_grad()
     true_volume_fractions = []
     predicted_volume_fractions = []
-    for _ in range(STEPS_PER_EPOCH):
-        _one_step_in_epoch(volume_fraction_model, true_volume_fractions, predicted_volume_fractions)
+    epoch_workers, step_workers = _split_workers_for_training_data_generation()
+    training_data = parallel_execution_of_function_with_same_params(
+        STEPS_PER_EPOCH, epoch_workers, _get_training_data, step_workers,
+    )
+    for training_batch in training_data:
+        _one_step_in_epoch(
+            volume_fraction_model,
+            training_batch,
+            true_volume_fractions,
+            predicted_volume_fractions,
+        )
     optimizer.step()
     true_volume_fractions = torch.concat(true_volume_fractions, dim=0)
     predicted_volume_fractions = torch.concat(predicted_volume_fractions, dim=0)
@@ -168,14 +184,18 @@ def _one_step_in_epoch(
     loss.backward()
     true_volume_fractions_list.append(training_data.true_volume_fractions)
     predicted_volume_fractions_list.append(predicted_volume_fractions)
+def _split_workers_for_training_data_generation() -> tuple[int, int]:
+    cpu_cores = cpu_count()
+    epoch_workers = cpu_cores // BATCH_SIZE
+    return epoch_workers, BATCH_SIZE
 
 
-def _get_training_data() -> TrainingData:
+def _get_training_data(step_workers: int) -> TrainingData:
     true_volume_fractions = []
     model_inputs = []
     image_dimensions = _get_image_dimensions()
-    training_samples = parallel_execution_of_function(
-        BATCH_SIZE, _generate_one_training_sample, image_dimensions,
+    training_samples = parallel_execution_of_function_with_same_params(
+        BATCH_SIZE, step_workers, _generate_one_training_sample, image_dimensions,
     )
     model_inputs = [training_sample[0] for training_sample in training_samples]
     true_volume_fractions = [training_sample[1] for training_sample in training_samples]
@@ -186,6 +206,20 @@ def _get_training_data() -> TrainingData:
         true_volume_fractions, dtype=torch.float32, device=DEVICE,
     )
     return TrainingData(model_inputs, true_volume_fractions)
+
+
+def _one_step_in_epoch(
+        volume_fraction_model: VolumeFractionModel,
+        training_batch: TrainingData,
+        true_volume_fractions_list: list,
+        predicted_volume_fractions_list: list,
+) -> None:
+    predicted_volume_fractions = volume_fraction_model(**training_batch.model_inputs)
+    loss = LOSS_FUNCTION(training_batch.true_volume_fractions, predicted_volume_fractions)
+    loss /= STEPS_PER_EPOCH
+    loss.backward()
+    true_volume_fractions_list.append(training_batch.true_volume_fractions)
+    predicted_volume_fractions_list.append(predicted_volume_fractions)
 
 
 def _get_image_dimensions() -> ImageDimensions:
@@ -250,13 +284,13 @@ def _epoch_evaluation_step(volume_fraction_model: VolumeFractionModel, epoch: in
     volume_fraction_model.eval()
     testcase_directories = glob(TESTDATA_DIRECTORY + '*')
     predicted_volume_fractions_list = []
-    true_volume_fractions_list = []
-    for testcase_directory in testcase_directories:
+    testcases = parallel_execution_of_function_with_param_list(
+        -1, _get_testdirectory_data, testcase_directories,
+    )
+    testcases_inputs, true_volume_fractions_list = _format_testcases(testcases)
+    for testcase_inputs in testcases_inputs:
         _evaluate_testcase_directory(
-            testcase_directory,
-            volume_fraction_model,
-            true_volume_fractions_list,
-            predicted_volume_fractions_list,
+            testcase_inputs, volume_fraction_model, predicted_volume_fractions_list,
         )
     predicted_volume_fractions = torch.concat(predicted_volume_fractions_list, dim=0)
     true_volume_fractions = torch.as_tensor(true_volume_fractions_list, device=DEVICE)
@@ -265,14 +299,28 @@ def _epoch_evaluation_step(volume_fraction_model: VolumeFractionModel, epoch: in
     )
 
 
+def _get_testdirectory_data(testcase_directory: str) -> tuple[torch.Tensor]:
+    volume_fraction_df = pd.read_csv(testcase_directory + '/volume_fractions.csv')
+    current_true_volume_fractions = volume_fraction_df['volume_fraction'].tolist()
+    true_volume_fractions = [[vf] for vf in current_true_volume_fractions]
+    microstructure_images = _get_microstructure_images(testcase_directory)
+    context_inputs = _get_texture_images(testcase_directory)
+    return TestCase((microstructure_images, *context_inputs), true_volume_fractions)
+
+
+def _format_testcases(testcases: list[TestCase]) -> tuple[tuple[torch.Tensor], list[list[float]]]:
+    testcases_inputs = [testcase.model_inputs for testcase in testcases]
+    true_volume_fractions_nested_list = [testcase.true_volume_fractions for testcase in testcases]
+    true_volume_fractions = _flatten_list(true_volume_fractions_nested_list)
+    return testcases_inputs, true_volume_fractions
+
+
 def _evaluate_testcase_directory(
-        testcase_directory: str,
+        testcase_inputs: tuple[torch.Tensor],
         volume_fraction_model: VolumeFractionModel,
-        true_volume_fractions_list: list,
         predicted_volume_fractions_list: list,
 ) -> None:
-    inputs = _get_testdirectory_data(testcase_directory, true_volume_fractions_list)
-    microstructure_images, context_images, contrastive_images = inputs
+    microstructure_images, context_images, contrastive_images = testcase_inputs
     for microstructure_image, context_image, contrastive_image in zip(
         microstructure_images, context_images, contrastive_images
     ):
@@ -285,17 +333,6 @@ def _evaluate_testcase_directory(
             )
             predicted_volume_fractions_list.append(predicted_volume_fractions)
         remove_gpu_copies(microstructure_image, context_image, contrastive_image)
-
-
-def _get_testdirectory_data(
-        testcase_directory: str, true_volume_fractions_list: list,
-) -> tuple[torch.Tensor]:
-    volume_fraction_df = pd.read_csv(testcase_directory + '/volume_fractions.csv')
-    current_true_volume_fractions = volume_fraction_df['volume_fraction'].tolist()
-    true_volume_fractions_list.extend([[vf] for vf in current_true_volume_fractions])
-    microstructure_images = _get_microstructure_images(testcase_directory)
-    context_inputs = _get_texture_images(testcase_directory)
-    return (microstructure_images, *context_inputs)
 
 
 def _get_microstructure_images(testcase_directory: str) -> torch.Tensor:
