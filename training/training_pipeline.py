@@ -24,6 +24,7 @@ from utils.memory_saving import (
     clear_memory,
 )
 from utils.metrics import process_metrics
+from utils.parallel_computing import parallel_execution_of_function
 from utils.reproducability import ensure_reproducability
 
 
@@ -72,7 +73,7 @@ USE_CONTEXT_LINEAR = True
 #Training hyperparameters
 LOSS_FUNCTION = nn.MSELoss()
 EPOCHS = int(1e4)
-NUM_EPOCHS_EVAL = int(2e1)
+NUM_EPOCHS_EVAL = int(1e2)
 STEPS_PER_EPOCH = 2
 BATCH_SIZE = 2
 LR = 1e-3
@@ -161,8 +162,6 @@ def _one_step_in_epoch(
         predicted_volume_fractions_list: list,
 ) -> None:
     training_data = _get_training_data()
-    print(training_data.model_inputs["microstructure_images"].shape)
-    print(training_data.model_inputs['texture_images'].shape)
     predicted_volume_fractions = volume_fraction_model(**training_data.model_inputs)
     loss = LOSS_FUNCTION(training_data.true_volume_fractions, predicted_volume_fractions)
     loss /= STEPS_PER_EPOCH
@@ -175,17 +174,13 @@ def _get_training_data() -> TrainingData:
     true_volume_fractions = []
     model_inputs = []
     image_dimensions = _get_image_dimensions()
-    for _ in range(BATCH_SIZE):
-        microstructure_image, texture_vol_1, texture_vol_2 = generate_two_phase_image(
-            image_dimensions,
-            **DATA_HYPERPARAMETERS,
-        )
-        true_volume_fractions.append([texture_vol_1.volume_fraction])
-        true_volume_fractions.append([texture_vol_2.volume_fraction])
-        model_inputs.extend([
-            (microstructure_image, texture_vol_1, texture_vol_2), # input for first volume fraction
-            (microstructure_image, texture_vol_2, texture_vol_1), # input for second volume fraction
-        ])
+    training_samples = parallel_execution_of_function(
+        BATCH_SIZE, _generate_one_training_sample, image_dimensions,
+    )
+    model_inputs = [training_sample[0] for training_sample in training_samples]
+    true_volume_fractions = [training_sample[1] for training_sample in training_samples]
+    model_inputs = _flatten_list(model_inputs)
+    true_volume_fractions = _flatten_list(true_volume_fractions)
     model_inputs = _format_model_inputs(model_inputs)
     true_volume_fractions = torch.as_tensor(
         true_volume_fractions, dtype=torch.float32, device=DEVICE,
@@ -198,6 +193,23 @@ def _get_image_dimensions() -> ImageDimensions:
     image_width = random.randint(MIN_IMAGE_DIM, MAX_IMAGE_DIM)
     image_height = random.randint(MIN_IMAGE_DIM, MAX_IMAGE_DIM)
     return ImageDimensions(image_height, image_width)
+
+
+def _generate_one_training_sample(image_dimensions: ImageDimensions) -> None:
+    microstructure_image, texture_vol_1, texture_vol_2 = generate_two_phase_image(
+        image_dimensions,
+        **DATA_HYPERPARAMETERS,
+    )
+    true_volume_fractions = [[texture_vol_1.volume_fraction], [texture_vol_2.volume_fraction]]
+    model_inputs = [
+        (microstructure_image, texture_vol_1, texture_vol_2), # input for first volume fraction
+        (microstructure_image, texture_vol_2, texture_vol_1), # input for second volume fraction
+    ]
+    return model_inputs, true_volume_fractions
+
+
+def _flatten_list(nested_list: list[list]) -> list:
+    return [item for sublist in nested_list for item in sublist]
 
 
 def _format_model_inputs(model_inputs: list[tuple]) -> dict[str, torch.Tensor]:
