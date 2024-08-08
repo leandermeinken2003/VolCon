@@ -26,7 +26,6 @@ from utils.memory_saving import (
     clear_memory,
 )
 from utils.metrics import process_metrics
-from utils.parallel_computing import parallel_execution_of_function
 from utils.parallel_computing import (
     parallel_execution_of_function_with_same_params,
     parallel_execution_of_function_with_param_list,
