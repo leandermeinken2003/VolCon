@@ -12,6 +12,10 @@ import numpy as np
 import torch
 from torch import nn
 from torch.optim import Adam
+from torch.amp import(
+    autocast,
+    GradScaler,
+)
 from tqdm import tqdm
 from joblib.externals.loky import cpu_count
 
@@ -33,7 +37,7 @@ from utils.parallel_computing import (
 from utils.reproducability import ensure_reproducability
 
 
-TESTRUN_ID = '5.7M_Context_Linear1'
+TESTRUN_ID = '5.7M_Linear1'
 TESTRUN_PATH = f'testruns/{TESTRUN_ID}/'
 MODEL_SAVE_PATH = TESTRUN_PATH + 'model.pth'
 OPTIMIZER_SAVE_PATH = TESTRUN_PATH + 'optimizer.pth'
@@ -73,15 +77,16 @@ BACKBONE_PARAMS = {
     'end_image_encoder_pooling_size': 2,
     'end_image_embedding_size': 256,
 }
-USE_CONTEXT_LINEAR = True
+USE_CONTEXT_LINEAR = False
 
 #Training hyperparameters
 LOSS_FUNCTION = nn.MSELoss()
-EPOCHS = 5360
+EPOCHS = 7374
+CHANGE_LR_EPOCH = 2375
 NUM_EPOCHS_EVAL = int(1e2)
 STEPS_PER_EPOCH = 4
 BATCH_SIZE = 2
-LR = 1e-4
+LR = 1e-5
 
 
 TrainingData = namedtuple('TrainingData', ['model_inputs', 'true_volume_fractions'])
@@ -90,10 +95,12 @@ TestCase = namedtuple('TestCase', ['model_inputs', 'true_volume_fractions'])
 
 def main() -> None:
     """Run train and evaluation pipeline."""
-    volume_fraction_model, optimizer = _init_training_setup()
+    volume_fraction_model, optimizer, scaler = _init_training_setup()
     _save_hyperparameters()
     for epoch in tqdm(range(EPOCHS)):
-        _epoch_training_step(volume_fraction_model, epoch, optimizer)
+        if epoch + 1 == CHANGE_LR_EPOCH:
+            optimizer = _change_lr(optimizer)
+        _epoch_training_step(volume_fraction_model, epoch, optimizer, scaler)
         if not epoch % NUM_EPOCHS_EVAL:
             _epoch_evaluation_step(volume_fraction_model, epoch)
         _save_optimizer_state_dict(optimizer)
@@ -104,8 +111,8 @@ def main() -> None:
 def _init_training_setup() -> tuple[VolumeFractionModel, Adam]:
     ensure_reproducability()
     volume_fraction_model = _get_volume_fraction_model()
-    optimizer = _get_optimizer(volume_fraction_model)
-    return volume_fraction_model, optimizer
+    optimizer, scaler = _get_optimizer(volume_fraction_model)
+    return volume_fraction_model, optimizer, scaler
 
 
 def _get_volume_fraction_model() -> VolumeFractionModel:
@@ -126,7 +133,7 @@ def _get_optimizer(volume_fraction_model: VolumeFractionModel) -> Adam:
     optimizer = Adam(volume_fraction_model.parameters(), lr=LR)
     if os.path.exists(OPTIMIZER_SAVE_PATH):
         optimizer = _load_optimizer_state_dict(optimizer)
-    return optimizer
+    return optimizer, GradScaler()
 
 
 def _load_optimizer_state_dict(optimizer: Adam) -> dict:
@@ -144,8 +151,14 @@ def _save_hyperparameters() -> None:
         json.dump(BACKBONE_PARAMS, file)
 
 
+def _change_lr(optimizer: Adam) -> Adam:
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = LR * 1e-1
+    return optimizer
+
+
 def _epoch_training_step(
-        volume_fraction_model: VolumeFractionModel, epoch: int, optimizer: Adam,
+        volume_fraction_model: VolumeFractionModel, epoch: int, optimizer: Adam, scaler: GradScaler,
 ) -> None:
     volume_fraction_model.train()
     optimizer.zero_grad()
@@ -161,8 +174,10 @@ def _epoch_training_step(
             training_batch,
             true_volume_fractions,
             predicted_volume_fractions,
+            scaler,
         )
-    optimizer.step()
+    scaler.step(optimizer)
+    scaler.update()
     true_volume_fractions = torch.concat(true_volume_fractions, dim=0)
     predicted_volume_fractions = torch.concat(predicted_volume_fractions, dim=0)
     process_metrics(
@@ -258,12 +273,14 @@ def _one_step_in_epoch(
         training_batch: TrainingData,
         true_volume_fractions_list: list,
         predicted_volume_fractions_list: list,
+        scaler: GradScaler,
 ) -> None:
-    predicted_volume_fractions = volume_fraction_model(**training_batch.model_inputs)
-    loss = LOSS_FUNCTION(training_batch.true_volume_fractions, predicted_volume_fractions)
-    loss /= STEPS_PER_EPOCH
+    with autocast(device_type=DEVICE, dtype=torch.float16):
+        predicted_volume_fractions = volume_fraction_model(**training_batch.model_inputs)
+        loss = LOSS_FUNCTION(training_batch.true_volume_fractions, predicted_volume_fractions)
+        loss /= STEPS_PER_EPOCH
     clear_memory()
-    loss.backward()
+    scaler.scale(loss).backward()
     true_volume_fractions_list.append(training_batch.true_volume_fractions)
     predicted_volume_fractions_list.append(predicted_volume_fractions)
     remove_gpu_copies(loss)
