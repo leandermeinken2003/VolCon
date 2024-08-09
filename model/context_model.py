@@ -143,7 +143,8 @@ class ContextAwareImageModelBase(nn.Module): #pylint: disable=too-many-instance-
                 .output_channels_image_encoder
             self.context_aware_encoder_stack.append(context_aware_inception_block)
             if not context_block_index + 1 % num_context_aware_blocks_per_pooling:
-                self.context_aware_encoder_stack.append(context_aware_image_encoder_pooling_size)
+                pooling = nn.AvgPool2d(context_aware_image_encoder_pooling_size)
+                self.context_aware_encoder_stack.append(pooling)
 
     def _create_end_image_encoder(
             self,
@@ -162,7 +163,8 @@ class ContextAwareImageModelBase(nn.Module): #pylint: disable=too-many-instance-
             input_channels = output_channels
             self.end_encoder_stack.append(end_encoder_block)
             if not end_encoder_index + 1 % num_end_encoder_blocks_per_pooling:
-                self.context_aware_encoder_stack.append(end_encoder_pooling_size)
+                pooling = nn.AvgPool2d(end_encoder_pooling_size)
+                self.context_aware_encoder_stack.append(pooling)
         self.end_encoder_stack = nn.Sequential(*self.end_encoder_stack)
 
     def forward(
@@ -177,7 +179,9 @@ class ContextAwareImageModelBase(nn.Module): #pylint: disable=too-many-instance-
         )
         image, context = self._context_aware_encoding(image, context, contrastive_context)
         image = self.end_encoder_stack(image)
+        print(image.shape)
         image_embedding = image.mean([2, 3])
+        print(image_embedding.shape)
         return self.image_embedding_size_transformer(image_embedding), context
 
     def _pre_encode(
