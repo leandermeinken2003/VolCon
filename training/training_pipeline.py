@@ -175,14 +175,17 @@ def _one_step_in_epoch(
         volume_fraction_model: VolumeFractionModel,
         true_volume_fractions_list: list,
         predicted_volume_fractions_list: list,
+        step_workers: int,
 ) -> None:
-    training_data = _get_training_data()
+    training_data = _get_training_data(step_workers)
     predicted_volume_fractions = volume_fraction_model(**training_data.model_inputs)
     loss = LOSS_FUNCTION(training_data.true_volume_fractions, predicted_volume_fractions)
     loss /= STEPS_PER_EPOCH
     loss.backward()
     true_volume_fractions_list.append(training_data.true_volume_fractions)
     predicted_volume_fractions_list.append(predicted_volume_fractions)
+
+
 def _split_workers_for_training_data_generation() -> tuple[int, int]:
     cpu_cores = cpu_count()
     epoch_workers = cpu_cores // BATCH_SIZE
@@ -216,9 +219,11 @@ def _one_step_in_epoch(
     predicted_volume_fractions = volume_fraction_model(**training_batch.model_inputs)
     loss = LOSS_FUNCTION(training_batch.true_volume_fractions, predicted_volume_fractions)
     loss /= STEPS_PER_EPOCH
+    clear_memory()
     loss.backward()
     true_volume_fractions_list.append(training_batch.true_volume_fractions)
     predicted_volume_fractions_list.append(predicted_volume_fractions)
+    remove_gpu_copies(loss)
 
 
 def _get_image_dimensions() -> ImageDimensions:
