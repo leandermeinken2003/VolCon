@@ -33,7 +33,7 @@ from utils.parallel_computing import (
 from utils.reproducability import ensure_reproducability
 
 
-TESTRUN_ID = '6M-Gauss-Stripe-No-Augmentation-High-LR'
+TESTRUN_ID = '5.7M_Context_Linear1'
 TESTRUN_PATH = f'testruns/{TESTRUN_ID}/'
 MODEL_SAVE_PATH = TESTRUN_PATH + 'model.pth'
 OPTIMIZER_SAVE_PATH = TESTRUN_PATH + 'optimizer.pth'
@@ -48,10 +48,10 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 DATA_HYPERPARAMETERS = {
     'shapes_type': ['gaussian_smoothed', 'stripe'],
     'combine_shape_types': 0.5,
-    'alpha_augmentation': False,
-    'noise_augmentation': False,
-    'anomaly_patch_augmentation': False,
-    'stripe_augmentation': False,
+    'alpha_augmentation': 0.3,
+    'noise_augmentation': 0.5,
+    'anomaly_patch_augmentation': 0.5,
+    'stripe_augmentation': 0.1,
 }
 MAX_IMAGE_DIM = 384
 MIN_IMAGE_DIM = 256
@@ -77,11 +77,11 @@ USE_CONTEXT_LINEAR = True
 
 #Training hyperparameters
 LOSS_FUNCTION = nn.MSELoss()
-EPOCHS = int(1e4)
+EPOCHS = 5360
 NUM_EPOCHS_EVAL = int(1e2)
-STEPS_PER_EPOCH = 2
+STEPS_PER_EPOCH = 4
 BATCH_SIZE = 2
-LR = 1e-3
+LR = 1e-4
 
 
 TrainingData = namedtuple('TrainingData', ['model_inputs', 'true_volume_fractions'])
@@ -171,21 +171,6 @@ def _epoch_training_step(
     remove_gpu_copies(true_volume_fractions, predicted_volume_fractions)
 
 
-def _one_step_in_epoch(
-        volume_fraction_model: VolumeFractionModel,
-        true_volume_fractions_list: list,
-        predicted_volume_fractions_list: list,
-        step_workers: int,
-) -> None:
-    training_data = _get_training_data(step_workers)
-    predicted_volume_fractions = volume_fraction_model(**training_data.model_inputs)
-    loss = LOSS_FUNCTION(training_data.true_volume_fractions, predicted_volume_fractions)
-    loss /= STEPS_PER_EPOCH
-    loss.backward()
-    true_volume_fractions_list.append(training_data.true_volume_fractions)
-    predicted_volume_fractions_list.append(predicted_volume_fractions)
-
-
 def _split_workers_for_training_data_generation() -> tuple[int, int]:
     cpu_cores = cpu_count()
     epoch_workers = cpu_cores // BATCH_SIZE
@@ -208,22 +193,6 @@ def _get_training_data(step_workers: int) -> TrainingData:
         true_volume_fractions, dtype=torch.float32, device=DEVICE,
     )
     return TrainingData(model_inputs, true_volume_fractions)
-
-
-def _one_step_in_epoch(
-        volume_fraction_model: VolumeFractionModel,
-        training_batch: TrainingData,
-        true_volume_fractions_list: list,
-        predicted_volume_fractions_list: list,
-) -> None:
-    predicted_volume_fractions = volume_fraction_model(**training_batch.model_inputs)
-    loss = LOSS_FUNCTION(training_batch.true_volume_fractions, predicted_volume_fractions)
-    loss /= STEPS_PER_EPOCH
-    clear_memory()
-    loss.backward()
-    true_volume_fractions_list.append(training_batch.true_volume_fractions)
-    predicted_volume_fractions_list.append(predicted_volume_fractions)
-    remove_gpu_copies(loss)
 
 
 def _get_image_dimensions() -> ImageDimensions:
@@ -282,6 +251,22 @@ def _format_context_images(context_images: list[torch.Tensor]) -> torch.Tensor:
         normed_texture_image = cropped_texture_image / 255
         new_context_images.append(normed_texture_image.unsqueeze(dim=0))
     return torch.concat(new_context_images, dim=0).to(DEVICE)
+
+
+def _one_step_in_epoch(
+        volume_fraction_model: VolumeFractionModel,
+        training_batch: TrainingData,
+        true_volume_fractions_list: list,
+        predicted_volume_fractions_list: list,
+) -> None:
+    predicted_volume_fractions = volume_fraction_model(**training_batch.model_inputs)
+    loss = LOSS_FUNCTION(training_batch.true_volume_fractions, predicted_volume_fractions)
+    loss /= STEPS_PER_EPOCH
+    clear_memory()
+    loss.backward()
+    true_volume_fractions_list.append(training_batch.true_volume_fractions)
+    predicted_volume_fractions_list.append(predicted_volume_fractions)
+    remove_gpu_copies(loss)
 
 
 def _epoch_evaluation_step(volume_fraction_model: VolumeFractionModel, epoch: int) -> None:
