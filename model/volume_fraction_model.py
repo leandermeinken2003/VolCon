@@ -58,7 +58,6 @@ class VolumeFractionModel(nn.Module):
             )
             outputs = self.output_layer(microstructure_image_embedding, context_embedding)
         else:
-            microstructure_image_embedding = self.backbone(microstructure_images)
             microstructure_image_embedding = self.hidden_layer(microstructure_image_embedding)
             outputs = self.output_layer(microstructure_image_embedding)
         return outputs
