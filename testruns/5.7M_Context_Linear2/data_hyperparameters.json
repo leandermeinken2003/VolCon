@@ -1,0 +1,1 @@
+{"shapes_type": ["gaussian_smoothed"], "combine_shape_types": 0.5, "alpha_augmentation": false, "noise_augmentation": false, "anomaly_patch_augmentation": false, "stripe_augmentation": false}
