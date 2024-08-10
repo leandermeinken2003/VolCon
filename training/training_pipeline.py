@@ -81,11 +81,11 @@ USE_CONTEXT_LINEAR = True
 
 #Training hyperparameters
 LOSS_FUNCTION = nn.MSELoss()
-EPOCHS = 5360
+EPOCHS = 2700
 NUM_EPOCHS_EVAL = int(1e2)
 STEPS_PER_EPOCH = 4
 BATCH_SIZE = 2
-LR = 1e-4
+LR = 1e-5
 
 
 TrainingData = namedtuple('TrainingData', ['model_inputs', 'true_volume_fractions'])
