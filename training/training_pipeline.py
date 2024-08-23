@@ -81,7 +81,8 @@ USE_CONTEXT_LINEAR = False
 
 #Training hyperparameters
 LOSS_FUNCTION = nn.MSELoss()
-EPOCHS = 4145
+EPOCHS = 7374
+CHANGE_LR_EPOCH = 2375
 NUM_EPOCHS_EVAL = int(1e2)
 STEPS_PER_EPOCH = 4
 BATCH_SIZE = 2
@@ -97,6 +98,8 @@ def main() -> None:
     volume_fraction_model, optimizer, scaler = _init_training_setup()
     _save_hyperparameters()
     for epoch in tqdm(range(EPOCHS)):
+        if epoch + 1 == CHANGE_LR_EPOCH:
+            optimizer = _change_lr(optimizer)
         _epoch_training_step(volume_fraction_model, epoch, optimizer, scaler)
         if not epoch % NUM_EPOCHS_EVAL:
             _epoch_evaluation_step(volume_fraction_model, epoch)
@@ -146,6 +149,12 @@ def _save_hyperparameters() -> None:
         json.dump(DATA_HYPERPARAMETERS, file)
     with open(TESTRUN_PATH + 'model_hyperparameters.json', 'w', encoding='utf-8') as file:
         json.dump(BACKBONE_PARAMS, file)
+
+
+def _change_lr(optimizer: Adam) -> Adam:
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = LR * 1e-1
+    return optimizer
 
 
 def _epoch_training_step(
