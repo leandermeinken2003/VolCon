@@ -179,9 +179,7 @@ class ContextAwareImageModelBase(nn.Module): #pylint: disable=too-many-instance-
         )
         image, context = self._context_aware_encoding(image, context, contrastive_context)
         image = self.end_encoder_stack(image)
-        print(image.shape)
         image_embedding = image.mean([2, 3])
-        print(image_embedding.shape)
         return self.image_embedding_size_transformer(image_embedding), context
 
     def _pre_encode(
