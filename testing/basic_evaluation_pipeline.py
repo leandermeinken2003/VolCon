@@ -13,7 +13,7 @@ from utils.postprocessing import (
 )
 
 
-TESTRUN_ID = "5.7M_Context_Linear1"
+TESTRUN_ID = "5.7M_Context_Linear9"
 TESTRUN_PATH = f'C:\\Users\\leand\\CES\\Semester VI\\Bachelorarbeit\\testruns\\{TESTRUN_ID}\\'
 MODEL_PATH = TESTRUN_PATH + 'model.pth'
 
