@@ -37,7 +37,7 @@ from utils.parallel_computing import (
 from utils.reproducability import ensure_reproducability
 
 
-TESTRUN_ID = '5.7M_Linear1'
+TESTRUN_ID = '5.7M_Context_Linear10'
 TESTRUN_PATH = f'testruns/{TESTRUN_ID}/'
 MODEL_SAVE_PATH = TESTRUN_PATH + 'model.pth'
 OPTIMIZER_SAVE_PATH = TESTRUN_PATH + 'optimizer.pth'
@@ -66,18 +66,19 @@ BACKBONE_PARAMS = {
     'filter_sizes_pre_encoder': [3, 3, 3],
     'context_embedding_size': 128,
     'context_embedding_mlp_depth': 2,
-    'context_aware_image_encoder_channels': [64, 64, 64],
+    'context_aware_image_encoder_channels': [],
     'filter_sizes_context_aware_image_encoder': [3, 3, 5, 7],
     'context_aware_image_encoder_block_depth': 2,
     'received_context_embedding_size': 64,
     'context_aware_image_encoder_pooling_size': 2,
     'num_context_aware_blocks_per_pooling': 3,
-    'end_image_encoder_channels': [128, 128, 128, 256, 256, 256],
-    'filter_sizes_end_image_encoder': [3, 3, 3, 3, 3, 3],
+    'end_image_encoder_channels': [64, 64, 64, 128, 128, 128, 256, 256, 256],
+    'filter_sizes_end_image_encoder': [3, 3, 3, 3, 3, 3, 3, 3, 3],
     'end_image_encoder_pooling_size': 2,
+    'num_end_encoder_blocks_per_pooling': 3,
     'end_image_embedding_size': 256,
 }
-USE_CONTEXT_LINEAR = False
+USE_CONTEXT_LINEAR = True
 
 #Training hyperparameters
 LOSS_FUNCTION = nn.MSELoss()

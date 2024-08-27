@@ -33,7 +33,7 @@ class ResNetBlock(nn.Module):
         )
         if not output_channels == input_channels:
             self.upsample = nn.Conv2d(
-                input_channels, output_channels, 1,
+                input_channels, output_channels, 1, padding="same",
             )
         else:
             self.upsample = None

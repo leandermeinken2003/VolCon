@@ -1,0 +1,12 @@
+"""Define Hyperparameters for shapes generation."""
+
+# gaussian smoothed
+MAX_THRESHOLD = 245
+MIN_THRESHOLD = 200
+SMOOTHING_PROBABILITY = 0.5
+
+# stripes
+MAX_SHAPE_STRIPES = 20
+MIN_SHAPE_STRIPES = 2
+MAX_SHAPE_STRIPE_THICKNESS = 10
+MIN_SHAPE_STRIPE_THICKNESS = 2

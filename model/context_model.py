@@ -155,7 +155,8 @@ class ContextAwareImageModelBase(nn.Module): #pylint: disable=too-many-instance-
     ) -> None:
         """Create end-image-encoder which encodes the model after the context has been encoded."""
         self.end_encoder_stack = []
-        input_channels = self.context_aware_encoder_stack[-1].output_channels_image_encoder
+        input_channels = self.context_aware_encoder_stack[-1].output_channels_image_encoder \
+            if self.context_aware_encoder_stack else self.pre_encoder_stack[-1].output_channels
         for end_encoder_index, (output_channels, filter_size) in enumerate(zip(
             end_image_encoder_channels, filter_sizes_end_image_encoder,
         )):
@@ -179,9 +180,7 @@ class ContextAwareImageModelBase(nn.Module): #pylint: disable=too-many-instance-
         )
         image, context = self._context_aware_encoding(image, context, contrastive_context)
         image = self.end_encoder_stack(image)
-        print(image.shape)
         image_embedding = image.mean([2, 3])
-        print(image_embedding.shape)
         return self.image_embedding_size_transformer(image_embedding), context
 
     def _pre_encode(
