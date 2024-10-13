@@ -13,7 +13,7 @@ from utils.postprocessing import (
 )
 
 
-TESTRUN_ID = "5.7M_Context_Linear9"
+TESTRUN_ID = "5.7M_Context_Linear1"
 TESTRUN_PATH = f'C:\\Users\\leand\\CES\\Semester VI\\Bachelorarbeit\\testruns\\{TESTRUN_ID}\\'
 MODEL_PATH = TESTRUN_PATH + 'model.pth'
 
@@ -115,7 +115,7 @@ def _output_metrics_for_predictions(testcases_data: pd.DataFrame, prediction_nam
     absolute_error = _absolute_error(testcases_data, prediction_name)
     percentage_error = _percentage_error(testcases_data, prediction_name)
     print(f"Prediction name: {prediction_name}")
-    print(f"mean ae: {absolute_error.mean()} | median ae: {absolute_error.median()}")
+    print(f"mean ae: {absolute_error.mean()} | median ae: {absolute_error.median()} | std ae: {absolute_error.std()}")
     print(f"mean pe: {percentage_error.mean()} | median pe: {percentage_error.median()}")
     return absolute_error, percentage_error
 
