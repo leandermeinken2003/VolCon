@@ -1,0 +1,2 @@
+# Model
+The model section of the repository defines the VolCon Model Architecture the main model is defined in the volume_fraction_model.py. Inside of the volume_fraction_model.py imports are received from context_model.py. In context_model.py the main structure of the VolCon Model is defined, where import from context_image_transformer.py and resnet_block.py are used. THe context_image_transformer defines the KBT and resnet_block.py defines the ResNet Block.
