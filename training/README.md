@@ -1,0 +1,2 @@
+# Training
+The training folder revolves around the training_pipeline.py file, which contains the pipeline to create a VolCon model from scratch using synthetic data. The generate_synthetic_two_phase_image.py file contains the function used generate synthetic samples and the ./synthetic_data_hyperparameter folder contains the hyperparameters used to define the synthetic data generation pipeline.
